@@ -1,6 +1,5 @@
 from fastapi import APIRouter
-from src.api import gateway
+from src.api.gateway import api_gateway
 
-router = APIRouter()
-
-router.include_router(gateway.router)
+# Use the router from the API gateway
+router = api_gateway.app

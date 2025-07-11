@@ -1,30 +1,54 @@
 from pydantic_settings import BaseSettings
-from dotenv import load_dotenv
-
-load_dotenv()
+from typing import Optional
+import os
 
 class Settings(BaseSettings):
-    OPENAI_API_KEY: str
-    ANTHROPIC_API_KEY: str
-    GOOGLE_API_KEY: str
-    COHERE_API_KEY: str
-    REDIS_HOST: str = "localhost"
-    REDIS_PORT: int = 6379
-    REDIS_PASSWORD: str | None = None
-    DATABASE_URL: str = "postgresql://user:pass@localhost/inferenceflow"
-    LOG_LEVEL: str = "INFO"
-    MAX_WORKERS: int = 10
-    CACHE_TTL: int = 3600
-    SIMILARITY_THRESHOLD: float = 0.85
-    RATE_LIMIT_REQUESTS: int = 100
-    RATE_LIMIT_WINDOW: int = 60
-    CIRCUIT_BREAKER_TIMEOUT: int = 300 # 5 minutes
-    MIN_REPLICAS: int = 3
-    MAX_REPLICAS: int = 20
-    PROMETHEUS_PORT: int = 8000
-    GRAFANA_URL: str = "http://localhost:3000"
-
+    # API Keys
+    openai_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+    google_api_key: Optional[str] = None
+    cohere_api_key: Optional[str] = None
+    
+    # Redis Configuration
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_password: Optional[str] = None
+    redis_db: int = 0
+    
+    # Database
+    database_url: Optional[str] = None
+    
+    # Application Settings
+    log_level: str = "INFO"
+    max_workers: int = 10
+    cache_ttl: int = 3600
+    similarity_threshold: float = 0.85
+    rate_limit_requests: int = 100
+    rate_limit_window: int = 60
+    
+    # Monitoring
+    prometheus_port: int = 8000
+    grafana_url: str = "http://localhost:3000"
+    
+    # JWT Settings
+    jwt_secret_key: str = "your-secret-key-change-in-production"
+    jwt_algorithm: str = "HS256"
+    jwt_expiration_hours: int = 24
+    
+    # Provider Settings
+    default_model: str = "gpt-3.5-turbo"
+    max_retries: int = 3
+    timeout_seconds: int = 30
+    
+    # Scaling Settings
+    min_replicas: int = 3
+    max_replicas: int = 20
+    cpu_threshold: int = 70
+    memory_threshold: int = 80
+    
     class Config:
         env_file = ".env"
+        case_sensitive = False
 
+# Global settings instance
 settings = Settings()
