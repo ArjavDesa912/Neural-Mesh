@@ -2,24 +2,26 @@ import redis
 import pickle
 import zlib
 from typing import Optional, List, Dict, Any
-from sentence_transformers import SentenceTransformer
 from src.utils.config import settings
+from src.services.embedding import embedding_service
 
 class SemanticCache:
-    def __init__(self):
-        self.redis_client = redis.Redis(
-            host=settings.REDIS_HOST,
-            port=settings.REDIS_PORT,
-            password=settings.REDIS_PASSWORD,
-            db=0
-        )
-        self.model = SentenceTransformer('all-MiniLM-L6-v2')
+    def __init__(self, redis_client=None):
+        if redis_client:
+            self.redis_client = redis_client
+        else:
+            self.redis_client = redis.Redis(
+                host=settings.REDIS_HOST,
+                port=settings.REDIS_PORT,
+                password=settings.REDIS_PASSWORD,
+                db=0
+            )
 
-    def get_similar_cached_response(self, prompt: str, threshold: float = 0.85) -> Optional[str]:
-        prompt_embedding = self.model.encode(prompt)
+    async def get_similar_cached_response(self, prompt: str, threshold: float = 0.85) -> Optional[str]:
+        prompt_embedding = embedding_service.encode(prompt)
         # This is a simplified implementation. A real implementation would use a vector database for efficient similarity search.
-        for key in self.redis_client.scan_iter("cache:*"):
-            cached_data = self.redis_client.get(key)
+        async for key in self.redis_client.scan_iter("cache:*"):
+            cached_data = await self.redis_client.get(key)
             if cached_data:
                 data = pickle.loads(zlib.decompress(cached_data))
                 similarity = self._cosine_similarity(prompt_embedding, data['embedding'])
@@ -36,14 +38,14 @@ class SemanticCache:
         compressed_data = zlib.compress(pickle.dumps(data))
         self.redis_client.setex(key, settings.CACHE_TTL, compressed_data)
 
-    def invalidate_cache(self, pattern: str) -> None:
-        for key in self.redis_client.scan_iter(f"cache:{pattern}"):
+    async def invalidate_cache(self, pattern: str) -> None:
+        for key in await self.redis_client.scan_iter(f"cache:{pattern}"):
             self.redis_client.delete(key)
 
-    def get_cache_stats(self) -> Dict[str, Any]:
+    async def get_cache_stats(self) -> Dict[str, Any]:
         return {
-            "keys": self.redis_client.dbsize(),
-            "info": self.redis_client.info()
+            "keys": await self.redis_client.dbsize(),
+            "info": await self.redis_client.info()
         }
 
     def _cosine_similarity(self, vec1, vec2):

@@ -1,4 +1,7 @@
 from pydantic_settings import BaseSettings
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class Settings(BaseSettings):
     OPENAI_API_KEY: str
@@ -15,6 +18,9 @@ class Settings(BaseSettings):
     SIMILARITY_THRESHOLD: float = 0.85
     RATE_LIMIT_REQUESTS: int = 100
     RATE_LIMIT_WINDOW: int = 60
+    CIRCUIT_BREAKER_TIMEOUT: int = 300 # 5 minutes
+    MIN_REPLICAS: int = 3
+    MAX_REPLICAS: int = 20
     PROMETHEUS_PORT: int = 8000
     GRAFANA_URL: str = "http://localhost:3000"
 

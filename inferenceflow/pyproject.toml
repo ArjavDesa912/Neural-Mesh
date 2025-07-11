@@ -1,0 +1,39 @@
+[project]
+name = "inferenceflow"
+version = "0.1.0"
+description = "A smart API gateway for LLM inference"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pydantic",
+    "pydantic-settings",
+    "python-dotenv",
+    "redis",
+    "pyjwt",
+    "sentence-transformers",
+    "scikit-learn",
+    "numpy",
+    "kubernetes",
+    "pandas",
+    "prometheus-client",
+    "psutil",
+    "aiohttp",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-benchmark",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["src"]
