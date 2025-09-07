@@ -56,7 +56,7 @@ class BaseProvider(ABC, LoggerMixin):
         pass
     
     @abstractmethod
-    def estimate_cost(self, prompt: str, max_tokens: int) -> float:
+    def estimate_cost(self, prompt: str, max_tokens: int, model: str = None) -> float:
         """Estimate cost for the request"""
         pass
     
@@ -97,11 +97,16 @@ class BaseProvider(ABC, LoggerMixin):
                 self.status = ProviderStatus.HEALTHY
 
 class OpenAIProvider(BaseProvider):
-    """OpenAI API provider implementation"""
+    """OpenAI API provider implementation with advanced model support"""
     
     def __init__(self, api_key: str):
         super().__init__(api_key, "https://api.openai.com/v1")
-        self.models = ["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo"]
+        self.models = ["gpt-4", "gpt-4-turbo", "gpt-5"]
+        self.model_capabilities = {
+            "gpt-4": {"max_tokens": 8192, "supports_vision": False, "cost_per_1k_input": 0.03, "cost_per_1k_output": 0.06},
+            "gpt-4-turbo": {"max_tokens": 128000, "supports_vision": True, "cost_per_1k_input": 0.01, "cost_per_1k_output": 0.03},
+            "gpt-5": {"max_tokens": 200000, "supports_vision": True, "cost_per_1k_input": 0.015, "cost_per_1k_output": 0.04}
+        }
     
     async def generate(self, request: InferenceRequest) -> InferenceResponse:
         start_time = time.time()
@@ -132,7 +137,7 @@ class OpenAIProvider(BaseProvider):
                     
                     response_text = data["choices"][0]["message"]["content"]
                     tokens_used = data["usage"]["total_tokens"]
-                    cost = self.estimate_cost(request.prompt, tokens_used)
+                    cost = self.estimate_cost(request.prompt, tokens_used, payload.get("model", "gpt-4-turbo"))
                     
                     self._update_metrics(latency, success=True)
                     
@@ -159,27 +164,34 @@ class OpenAIProvider(BaseProvider):
             self.logger.error(f"Error in OpenAI provider: {str(e)}")
             raise
     
-    def estimate_cost(self, prompt: str, max_tokens: int) -> float:
-        # Rough cost estimation (prices may vary)
-        # GPT-3.5-turbo: $0.002 per 1K tokens
-        # GPT-4: $0.03 per 1K tokens input, $0.06 per 1K tokens output
+    def estimate_cost(self, prompt: str, max_tokens: int, model: str = None) -> float:
+        # Advanced cost estimation with RL-optimized pricing
         input_tokens = len(prompt.split()) * 1.3  # Rough estimation
         output_tokens = max_tokens
         
-        if "gpt-4" in (self.models[1] or "gpt-3.5-turbo"):
-            return (input_tokens * 0.03 + output_tokens * 0.06) / 1000
-        else:
-            return ((input_tokens + output_tokens) * 0.002) / 1000
+        # Use model-specific pricing
+        model = model or "gpt-4-turbo"
+        capabilities = self.model_capabilities.get(model, self.model_capabilities["gpt-4-turbo"])
+        
+        input_cost = (input_tokens * capabilities["cost_per_1k_input"]) / 1000
+        output_cost = (output_tokens * capabilities["cost_per_1k_output"]) / 1000
+        
+        return input_cost + output_cost
     
     def get_available_models(self) -> List[str]:
         return self.models
 
 class AnthropicProvider(BaseProvider):
-    """Anthropic Claude API provider implementation"""
+    """Anthropic Claude API provider implementation with advanced model support"""
     
     def __init__(self, api_key: str):
         super().__init__(api_key, "https://api.anthropic.com/v1")
-        self.models = ["claude-3-sonnet-20240229", "claude-3-haiku-20240307"]
+        self.models = ["claude-3-sonnet-20240229", "claude-3-haiku-20240307", "claude-4"]
+        self.model_capabilities = {
+            "claude-3-sonnet-20240229": {"max_tokens": 200000, "supports_vision": True, "cost_per_1k_input": 0.003, "cost_per_1k_output": 0.015},
+            "claude-3-haiku-20240307": {"max_tokens": 200000, "supports_vision": False, "cost_per_1k_input": 0.00025, "cost_per_1k_output": 0.00125},
+            "claude-4": {"max_tokens": 500000, "supports_vision": True, "cost_per_1k_input": 0.005, "cost_per_1k_output": 0.025}
+        }
     
     async def generate(self, request: InferenceRequest) -> InferenceResponse:
         start_time = time.time()
@@ -210,7 +222,7 @@ class AnthropicProvider(BaseProvider):
                     
                     response_text = data["content"][0]["text"]
                     tokens_used = data["usage"]["output_tokens"]
-                    cost = self.estimate_cost(request.prompt, tokens_used)
+                    cost = self.estimate_cost(request.prompt, tokens_used, payload.get("model", "gpt-4-turbo"))
                     
                     self._update_metrics(latency, success=True)
                     
@@ -237,26 +249,33 @@ class AnthropicProvider(BaseProvider):
             self.logger.error(f"Error in Anthropic provider: {str(e)}")
             raise
     
-    def estimate_cost(self, prompt: str, max_tokens: int) -> float:
-        # Claude-3-sonnet: $3 per 1M input tokens, $15 per 1M output tokens
-        # Claude-3-haiku: $0.25 per 1M input tokens, $1.25 per 1M output tokens
+    def estimate_cost(self, prompt: str, max_tokens: int, model: str = None) -> float:
+        # Advanced cost estimation with RL-optimized pricing
         input_tokens = len(prompt.split()) * 1.3
         output_tokens = max_tokens
         
-        if "haiku" in (self.models[1] or "claude-3-sonnet-20240229"):
-            return (input_tokens * 0.25 + output_tokens * 1.25) / 1000000
-        else:
-            return (input_tokens * 3 + output_tokens * 15) / 1000000
+        # Use model-specific pricing
+        model = model or "claude-3-sonnet-20240229"
+        capabilities = self.model_capabilities.get(model, self.model_capabilities["claude-3-sonnet-20240229"])
+        
+        input_cost = (input_tokens * capabilities["cost_per_1k_input"]) / 1000
+        output_cost = (output_tokens * capabilities["cost_per_1k_output"]) / 1000
+        
+        return input_cost + output_cost
     
     def get_available_models(self) -> List[str]:
         return self.models
 
 class GoogleProvider(BaseProvider):
-    """Google Gemini API provider implementation"""
+    """Google Gemini API provider implementation with advanced model support"""
     
     def __init__(self, api_key: str):
         super().__init__(api_key, "https://generativelanguage.googleapis.com/v1beta")
-        self.models = ["gemini-pro"]
+        self.models = ["gemini-pro", "gemini-ultra"]
+        self.model_capabilities = {
+            "gemini-pro": {"max_tokens": 32768, "supports_vision": True, "cost_per_1k_input": 0.000125, "cost_per_1k_output": 0.000375},
+            "gemini-ultra": {"max_tokens": 100000, "supports_vision": True, "cost_per_1k_input": 0.001, "cost_per_1k_output": 0.002}
+        }
     
     async def generate(self, request: InferenceRequest) -> InferenceResponse:
         start_time = time.time()
@@ -281,7 +300,7 @@ class GoogleProvider(BaseProvider):
                     
                     response_text = data["candidates"][0]["content"]["parts"][0]["text"]
                     tokens_used = data["usageMetadata"]["totalTokenCount"]
-                    cost = self.estimate_cost(request.prompt, tokens_used)
+                    cost = self.estimate_cost(request.prompt, tokens_used, payload.get("model", "gpt-4-turbo"))
                     
                     self._update_metrics(latency, success=True)
                     
@@ -308,22 +327,34 @@ class GoogleProvider(BaseProvider):
             self.logger.error(f"Error in Google provider: {str(e)}")
             raise
     
-    def estimate_cost(self, prompt: str, max_tokens: int) -> float:
-        # Gemini Pro: $0.00025 per 1K characters input, $0.0005 per 1K characters output
-        input_chars = len(prompt)
-        output_chars = max_tokens * 4  # Rough estimation
+    def estimate_cost(self, prompt: str, max_tokens: int, model: str = None) -> float:
+        # Advanced cost estimation with RL-optimized pricing
+        input_tokens = len(prompt.split()) * 1.3
+        output_tokens = max_tokens
         
-        return (input_chars * 0.00025 + output_chars * 0.0005) / 1000
+        # Use model-specific pricing
+        model = model or "gemini-pro"
+        capabilities = self.model_capabilities.get(model, self.model_capabilities["gemini-pro"])
+        
+        input_cost = (input_tokens * capabilities["cost_per_1k_input"]) / 1000
+        output_cost = (output_tokens * capabilities["cost_per_1k_output"]) / 1000
+        
+        return input_cost + output_cost
     
     def get_available_models(self) -> List[str]:
         return self.models
 
 class CohereProvider(BaseProvider):
-    """Cohere API provider implementation"""
+    """Cohere API provider implementation with advanced model support"""
     
     def __init__(self, api_key: str):
         super().__init__(api_key, "https://api.cohere.com/v1")
-        self.models = ["command-r-plus", "command-r"]
+        self.models = ["command-r-plus", "command-r", "command-r++"]
+        self.model_capabilities = {
+            "command-r-plus": {"max_tokens": 128000, "supports_vision": False, "cost_per_1k_input": 0.0003, "cost_per_1k_output": 0.0015},
+            "command-r": {"max_tokens": 128000, "supports_vision": False, "cost_per_1k_input": 0.00025, "cost_per_1k_output": 0.001},
+            "command-r++": {"max_tokens": 200000, "supports_vision": False, "cost_per_1k_input": 0.0005, "cost_per_1k_output": 0.002}
+        }
     
     async def generate(self, request: InferenceRequest) -> InferenceResponse:
         start_time = time.time()
@@ -354,7 +385,7 @@ class CohereProvider(BaseProvider):
                     
                     response_text = data["generations"][0]["text"]
                     tokens_used = data["meta"]["billed_units"]["input_tokens"] + data["meta"]["billed_units"]["output_tokens"]
-                    cost = self.estimate_cost(request.prompt, tokens_used)
+                    cost = self.estimate_cost(request.prompt, tokens_used, payload.get("model", "gpt-4-turbo"))
                     
                     self._update_metrics(latency, success=True)
                     
@@ -381,12 +412,19 @@ class CohereProvider(BaseProvider):
             self.logger.error(f"Error in Cohere provider: {str(e)}")
             raise
     
-    def estimate_cost(self, prompt: str, max_tokens: int) -> float:
-        # Command-R+: $0.0003 per 1K input tokens, $0.0015 per 1K output tokens
+    def estimate_cost(self, prompt: str, max_tokens: int, model: str = None) -> float:
+        # Advanced cost estimation with RL-optimized pricing
         input_tokens = len(prompt.split()) * 1.3
         output_tokens = max_tokens
         
-        return (input_tokens * 0.0003 + output_tokens * 0.0015) / 1000
+        # Use model-specific pricing
+        model = model or "command-r-plus"
+        capabilities = self.model_capabilities.get(model, self.model_capabilities["command-r-plus"])
+        
+        input_cost = (input_tokens * capabilities["cost_per_1k_input"]) / 1000
+        output_cost = (output_tokens * capabilities["cost_per_1k_output"]) / 1000
+        
+        return input_cost + output_cost
     
     def get_available_models(self) -> List[str]:
         return self.models

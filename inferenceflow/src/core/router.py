@@ -13,16 +13,17 @@ import uuid
 import time
 import asyncio
 from collections import deque
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 
 import numpy as np
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from src.models.providers import BaseProvider, ProviderManager, ProviderStatus
 from src.utils.config import settings
 from src.utils.logger import LoggerMixin
 from sentence_transformers import SentenceTransformer
 from collections import defaultdict, deque
+import json
 
 class RequestType(Enum):
     CHAT = "chat"
@@ -40,16 +41,145 @@ class RoutingDecision:
     request_type: RequestType
     estimated_latency: float
     estimated_cost: float
+    rl_score: float = 0.0
+    multi_modal_features: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class RLState:
+    provider_name: str
+    request_type: RequestType
+    prompt_complexity: float
+    estimated_cost: float
+    historical_latency: float
+    error_rate: float
+
+@dataclass
+class RLAction:
+    provider: BaseProvider
+    model_selection: str
+    confidence: float
+
+class ReinforcementLearningRouter:
+    """Reinforcement Learning-based provider selection and optimization"""
+    
+    def __init__(self, learning_rate: float = 0.01, discount_factor: float = 0.95):
+        self.learning_rate = learning_rate
+        self.discount_factor = discount_factor
+        self.q_table: Dict[str, Dict[str, float]] = defaultdict(lambda: defaultdict(float))
+        self.exploration_rate = 0.1
+        self.exploration_decay = 0.995
+        self.min_exploration = 0.01
+        self.training_history: List[Dict[str, Any]] = []
+        self.reward_history: deque = deque(maxlen=1000)
+        
+    def get_state_key(self, state: RLState) -> str:
+        """Convert state to string key for Q-table"""
+        return f"{state.provider_name}_{state.request_type.value}_{int(state.prompt_complexity*10)}_{int(state.estimated_cost*1000)}"
+    
+    def get_action_key(self, action: RLAction) -> str:
+        """Convert action to string key for Q-table"""
+        return f"{action.provider.__class__.__name__}_{action.model_selection}"
+    
+    def choose_action(self, state: RLState, available_actions: List[RLAction]) -> RLAction:
+        """Choose action using epsilon-greedy strategy"""
+        if random.random() < self.exploration_rate:
+            # Exploration: choose random action
+            return random.choice(available_actions)
+        
+        # Exploitation: choose best action
+        state_key = self.get_state_key(state)
+        best_action = None
+        best_value = float('-inf')
+        
+        for action in available_actions:
+            action_key = self.get_action_key(action)
+            q_value = self.q_table[state_key][action_key]
+            if q_value > best_value:
+                best_value = q_value
+                best_action = action
+        
+        return best_action or available_actions[0]
+    
+    def update_q_value(self, state: RLState, action: RLAction, reward: float, next_state: RLState):
+        """Update Q-value using Q-learning algorithm"""
+        state_key = self.get_state_key(state)
+        action_key = self.get_action_key(action)
+        
+        # Get current Q-value
+        current_q = self.q_table[state_key][action_key]
+        
+        # Get maximum Q-value for next state
+        next_state_key = self.get_state_key(next_state)
+        next_max_q = max(self.q_table[next_state_key].values()) if self.q_table[next_state_key] else 0
+        
+        # Q-learning update rule
+        new_q = current_q + self.learning_rate * (reward + self.discount_factor * next_max_q - current_q)
+        self.q_table[state_key][action_key] = new_q
+        
+        # Decay exploration rate
+        self.exploration_rate = max(self.min_exploration, self.exploration_rate * self.exploration_decay)
+        
+        # Record training
+        self.training_history.append({
+            'timestamp': time.time(),
+            'state': state_key,
+            'action': action_key,
+            'reward': reward,
+            'q_value': new_q,
+            'exploration_rate': self.exploration_rate
+        })
+    
+    def calculate_reward(self, routing_decision: RoutingDecision, actual_latency: float, actual_cost: float, success: bool) -> float:
+        """Calculate reward for reinforcement learning"""
+        reward = 0.0
+        
+        # Success reward
+        if success:
+            reward += 10.0
+        else:
+            reward -= 20.0
+        
+        # Latency reward (lower is better)
+        latency_penalty = max(0, (actual_latency - 2.0) * 2)  # Penalize > 2s latency
+        reward -= latency_penalty
+        
+        # Cost reward (lower is better)
+        cost_penalty = actual_cost * 10  # Penalize high cost
+        reward -= cost_penalty
+        
+        # Confidence reward
+        reward += routing_decision.confidence * 5.0
+        
+        # Cache efficiency bonus
+        if hasattr(routing_decision, 'cache_hit') and routing_decision.cache_hit:
+            reward += 5.0
+        
+        return reward
+    
+    def get_rl_stats(self) -> Dict[str, Any]:
+        """Get reinforcement learning statistics"""
+        return {
+            'total_training_steps': len(self.training_history),
+            'exploration_rate': self.exploration_rate,
+            'q_table_size': len(self.q_table),
+            'average_reward': np.mean(self.reward_history) if self.reward_history else 0.0,
+            'recent_rewards': list(self.reward_history)[-100:],  # Last 100 rewards
+            'learning_rate': self.learning_rate,
+            'discount_factor': self.discount_factor
+        }
 
 class SmartRouter(LoggerMixin):
-    """Intelligent request routing based on semantic similarity and load balancing"""
+    """Intelligent request routing based on semantic similarity and reinforcement learning optimization"""
     
     def __init__(self, provider_manager: ProviderManager):
         self.provider_manager = provider_manager
         self.embedding_model: Optional[SentenceTransformer] = None
+        self.vision_embedding_model: Optional[SentenceTransformer] = None
         self.request_history: deque = deque(maxlen=1000)
         self.provider_latency_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=100))
         self.circuit_breaker_states: Dict[str, Dict[str, Any]] = {}
+        self.rl_router = ReinforcementLearningRouter()
+        self.multi_modal_features_cache: Dict[str, Any] = {}
         
         # Request type patterns for classification
         self.request_patterns = {
@@ -74,18 +204,32 @@ class SmartRouter(LoggerMixin):
         }
     
     async def initialize(self):
-        """Initialize the router with embedding model"""
+        """Initialize the router with embedding models and RL components"""
         try:
+            # Initialize text embedding model
             self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-            self.logger.info("Router initialized with embedding model")
+            
+            # Initialize vision embedding model for multi-modal support
+            try:
+                self.vision_embedding_model = SentenceTransformer('clip-ViT-B-32')
+            except Exception:
+                self.logger.warning("Vision embedding model not available, multi-modal features limited")
+            
+            # Initialize RL router
+            self.rl_router = ReinforcementLearningRouter()
+            
+            self.logger.info("Router initialized with embedding models and RL optimization")
         except Exception as e:
             self.logger.error(f"Failed to initialize router: {str(e)}")
             raise
     
     async def route_request(self, request: InferenceRequest) -> RoutingDecision:
-        """Route request to the optimal provider"""
+        """Route request to the optimal provider using RL optimization"""
         
-        # Classify request type
+        # Extract multi-modal features
+        multi_modal_features = await self._extract_multi_modal_features(request)
+        
+        # Classify request type with enhanced analysis
         request_type = self._classify_request_type(request.prompt)
         
         # Get available providers
@@ -105,10 +249,13 @@ class SmartRouter(LoggerMixin):
             self._reset_circuit_breakers()
             available_providers = await self.provider_manager.get_healthy_providers()
         
-        # Select optimal provider
-        optimal_provider = await self._select_optimal_provider(
-            request, available_providers, request_type
-        )
+        # Prepare RL state and actions
+        rl_state = self._create_rl_state(request, request_type, available_providers)
+        rl_actions = self._create_rl_actions(available_providers, request)
+        
+        # Use RL to select optimal provider
+        optimal_action = self.rl_router.choose_action(rl_state, rl_actions)
+        optimal_provider = optimal_action.provider
         
         # Calculate confidence and reasoning
         confidence, reasoning = self._calculate_routing_confidence(
@@ -118,8 +265,11 @@ class SmartRouter(LoggerMixin):
         # Estimate performance metrics
         estimated_latency = self._estimate_latency(optimal_provider)
         estimated_cost = optimal_provider.estimate_cost(
-            request.prompt, request.max_tokens
+            request.prompt, request.max_tokens, optimal_action.model_selection if hasattr(optimal_action, 'model_selection') else None
         )
+        
+        # Calculate RL score
+        rl_score = self._calculate_rl_score(rl_state, optimal_action)
         
         # Record routing decision
         self._record_routing_decision(request, optimal_provider, request_type)
@@ -130,7 +280,9 @@ class SmartRouter(LoggerMixin):
             reasoning=reasoning,
             request_type=request_type,
             estimated_latency=estimated_latency,
-            estimated_cost=estimated_cost
+            estimated_cost=estimated_cost,
+            rl_score=rl_score,
+            multi_modal_features=multi_modal_features
         )
     
     def _classify_request_type(self, prompt: str) -> RequestType:
@@ -401,13 +553,188 @@ class SmartRouter(LoggerMixin):
             self.logger.error(f"Error calculating cosine similarity: {str(e)}")
             return 0.0
     
+    async def _extract_multi_modal_features(self, request: InferenceRequest) -> Dict[str, Any]:
+        """Extract multi-modal features from request"""
+        features = {
+            "text_complexity": self._calculate_text_complexity(request.prompt),
+            "has_code": self._detect_code_content(request.prompt),
+            "has_math": self._detect_math_content(request.prompt),
+            "language": self._detect_language(request.prompt),
+            "sentiment": self._analyze_sentiment(request.prompt),
+            "urgency": self._detect_urgency(request.prompt)
+        }
+        
+        # Cache features for reuse
+        prompt_hash = hash(request.prompt)
+        self.multi_modal_features_cache[prompt_hash] = features
+        
+        return features
+    
+    def _calculate_text_complexity(self, text: str) -> float:
+        """Calculate text complexity score (0-1)"""
+        if not text:
+            return 0.0
+        
+        # Simple complexity metrics
+        word_count = len(text.split())
+        sentence_count = len(text.split('.')) + len(text.split('!')) + len(text.split('?'))
+        avg_word_length = sum(len(word) for word in text.split()) / max(word_count, 1)
+        
+        # Normalize complexity
+        complexity = min(1.0, (word_count / 100) + (avg_word_length / 10) + (sentence_count / 10))
+        return complexity
+    
+    def _detect_code_content(self, text: str) -> bool:
+        """Detect if text contains code"""
+        code_indicators = ['def ', 'function', 'class ', 'import ', 'from ', 'var ', 'let ', 'const ', '=>', '{', '}']
+        return any(indicator in text.lower() for indicator in code_indicators)
+    
+    def _detect_math_content(self, text: str) -> bool:
+        """Detect if text contains mathematical content"""
+        math_indicators = ['=', '+', '-', '*', '/', '^', 'sqrt', 'sin', 'cos', 'tan', 'log', 'integral', 'derivative']
+        return any(indicator in text.lower() for indicator in math_indicators)
+    
+    def _detect_language(self, text: str) -> str:
+        """Simple language detection"""
+        # Simple heuristic-based detection
+        if any(char in text for char in ['ä', 'ö', 'ü', 'ß']):
+            return 'german'
+        elif any(char in text for char in ['é', 'è', 'ê', 'à', 'ç']):
+            return 'french'
+        elif any(char in text for char in ['ñ', 'á', 'é', 'í', 'ó', 'ú']):
+            return 'spanish'
+        else:
+            return 'english'
+    
+    def _analyze_sentiment(self, text: str) -> float:
+        """Simple sentiment analysis (-1 to 1)"""
+        positive_words = ['good', 'great', 'excellent', 'amazing', 'wonderful', 'fantastic', 'love', 'like']
+        negative_words = ['bad', 'terrible', 'awful', 'hate', 'dislike', 'horrible', 'worst']
+        
+        text_lower = text.lower()
+        positive_count = sum(1 for word in positive_words if word in text_lower)
+        negative_count = sum(1 for word in negative_words if word in text_lower)
+        
+        total = positive_count + negative_count
+        if total == 0:
+            return 0.0
+        
+        return (positive_count - negative_count) / total
+    
+    def _detect_urgency(self, text: str) -> float:
+        """Detect urgency level (0-1)"""
+        urgent_words = ['urgent', 'asap', 'immediately', 'emergency', 'critical', 'important', 'quickly', 'fast']
+        text_lower = text.lower()
+        
+        urgent_count = sum(1 for word in urgent_words if word in text_lower)
+        return min(1.0, urgent_count / len(urgent_words))
+    
+    def _create_rl_state(self, request: InferenceRequest, request_type: RequestType, providers: List[BaseProvider]) -> RLState:
+        """Create RL state from request and providers"""
+        # Calculate average metrics across providers
+        avg_latency = sum(p.total_latency / max(p.total_requests, 1) for p in providers) / len(providers)
+        avg_error_rate = sum(p.error_count / max(p.total_requests, 1) for p in providers) / len(providers)
+        
+        return RLState(
+            provider_name="multi_provider",
+            request_type=request_type,
+            prompt_complexity=self._calculate_text_complexity(request.prompt),
+            estimated_cost=sum(p.estimate_cost(request.prompt, request.max_tokens) for p in providers) / len(providers),
+            historical_latency=avg_latency,
+            error_rate=avg_error_rate
+        )
+    
+    def _create_rl_actions(self, providers: List[BaseProvider], request: InferenceRequest) -> List[RLAction]:
+        """Create RL actions from available providers"""
+        actions = []
+        for provider in providers:
+            for model in provider.get_available_models():
+                confidence = self._calculate_provider_confidence(provider, request)
+                actions.append(RLAction(
+                    provider=provider,
+                    model_selection=model,
+                    confidence=confidence
+                ))
+        return actions
+    
+    def _calculate_provider_confidence(self, provider: BaseProvider, request: InferenceRequest) -> float:
+        """Calculate confidence score for provider"""
+        confidence = 0.0
+        
+        # Health confidence
+        if provider.status == ProviderStatus.HEALTHY:
+            confidence += 0.4
+        elif provider.status == ProviderStatus.DEGRADED:
+            confidence += 0.2
+        
+        # Performance confidence
+        if provider.total_requests > 0:
+            avg_latency = provider.total_latency / provider.total_requests
+            error_rate = provider.error_count / provider.total_requests
+            
+            latency_score = max(0, 1 - (avg_latency / 5.0))  # Penalize > 5s latency
+            error_score = max(0, 1 - (error_rate * 10))  # Penalize > 10% error rate
+            
+            confidence += (latency_score + error_score) * 0.3
+        
+        return min(1.0, confidence)
+    
+    def _calculate_rl_score(self, state: RLState, action: RLAction) -> float:
+        """Calculate RL score for routing decision"""
+        state_key = self.rl_router.get_state_key(state)
+        action_key = self.rl_router.get_action_key(action)
+        
+        q_value = self.rl_router.q_table[state_key][action_key]
+        
+        # Normalize Q-value to 0-1 range for display
+        return max(0.0, min(1.0, (q_value + 50) / 100))  # Assuming Q-values range -50 to 50
+    
+    def record_routing_outcome(self, decision: RoutingDecision, actual_latency: float, actual_cost: float, success: bool):
+        """Record routing outcome for RL learning"""
+        # Calculate reward
+        reward = self.rl_router.calculate_reward(decision, actual_latency, actual_cost, success)
+        
+        # Update RL model
+        state = self._create_rl_state_from_decision(decision)
+        action = self._create_rl_action_from_decision(decision)
+        next_state = self._create_rl_state_from_decision(decision)  # Simplified for now
+        
+        self.rl_router.update_q_value(state, action, reward, next_state)
+        self.rl_router.reward_history.append(reward)
+        
+        self.logger.info(f"Recorded routing outcome: reward={reward:.2f}, success={success}")
+    
+    def _create_rl_state_from_decision(self, decision: RoutingDecision) -> RLState:
+        """Create RL state from routing decision"""
+        return RLState(
+            provider_name=decision.provider.__class__.__name__,
+            request_type=decision.request_type,
+            prompt_complexity=decision.multi_modal_features.get('text_complexity', 0.5),
+            estimated_cost=decision.estimated_cost,
+            historical_latency=decision.estimated_latency,
+            error_rate=0.0  # Would need to be tracked separately
+        )
+    
+    def _create_rl_action_from_decision(self, decision: RoutingDecision) -> RLAction:
+        """Create RL action from routing decision"""
+        return RLAction(
+            provider=decision.provider,
+            model_selection=decision.provider.get_available_models()[0],  # Default to first model
+            confidence=decision.confidence
+        )
+    
     def get_routing_stats(self) -> Dict[str, Any]:
         """Get routing statistics and analytics"""
         stats = {
             "total_routing_decisions": len(self.request_history),
             "circuit_breaker_states": {},
             "request_type_distribution": defaultdict(int),
-            "provider_distribution": defaultdict(int)
+            "provider_distribution": defaultdict(int),
+            "reinforcement_learning": self.rl_router.get_rl_stats(),
+            "multi_modal_features": {
+                "cached_features": len(self.multi_modal_features_cache),
+                "feature_types": ["text_complexity", "has_code", "has_math", "language", "sentiment", "urgency"]
+            }
         }
         
         # Circuit breaker states
