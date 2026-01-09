@@ -101,11 +101,11 @@ class OpenAIProvider(BaseProvider):
     
     def __init__(self, api_key: str):
         super().__init__(api_key, "https://api.openai.com/v1")
-        self.models = ["gpt-4", "gpt-4-turbo", "gpt-5"]
+        self.models = ["gpt-4-turbo", "gpt-4o", "gpt-4o-mini"]
         self.model_capabilities = {
-            "gpt-4": {"max_tokens": 8192, "supports_vision": False, "cost_per_1k_input": 0.03, "cost_per_1k_output": 0.06},
             "gpt-4-turbo": {"max_tokens": 128000, "supports_vision": True, "cost_per_1k_input": 0.01, "cost_per_1k_output": 0.03},
-            "gpt-5": {"max_tokens": 200000, "supports_vision": True, "cost_per_1k_input": 0.015, "cost_per_1k_output": 0.04}
+            "gpt-4o": {"max_tokens": 128000, "supports_vision": True, "cost_per_1k_input": 0.005, "cost_per_1k_output": 0.015},
+            "gpt-4o-mini": {"max_tokens": 128000, "supports_vision": True, "cost_per_1k_input": 0.00015, "cost_per_1k_output": 0.0006}
         }
     
     async def generate(self, request: InferenceRequest) -> InferenceResponse:
@@ -119,7 +119,7 @@ class OpenAIProvider(BaseProvider):
             }
             
             payload = {
-                "model": request.model_preference or "gpt-3.5-turbo",
+                "model": request.model_preference or "gpt-4o",
                 "messages": [{"role": "user", "content": request.prompt}],
                 "max_tokens": request.max_tokens,
                 "temperature": request.temperature,
@@ -137,7 +137,7 @@ class OpenAIProvider(BaseProvider):
                     
                     response_text = data["choices"][0]["message"]["content"]
                     tokens_used = data["usage"]["total_tokens"]
-                    cost = self.estimate_cost(request.prompt, tokens_used, payload.get("model", "gpt-4-turbo"))
+                    cost = self.estimate_cost(request.prompt, tokens_used, payload.get("model", "gpt-4o"))
                     
                     self._update_metrics(latency, success=True)
                     
@@ -170,8 +170,8 @@ class OpenAIProvider(BaseProvider):
         output_tokens = max_tokens
         
         # Use model-specific pricing
-        model = model or "gpt-4-turbo"
-        capabilities = self.model_capabilities.get(model, self.model_capabilities["gpt-4-turbo"])
+        model = model or "gpt-4o"
+        capabilities = self.model_capabilities.get(model, self.model_capabilities["gpt-4o"])
         
         input_cost = (input_tokens * capabilities["cost_per_1k_input"]) / 1000
         output_cost = (output_tokens * capabilities["cost_per_1k_output"]) / 1000
@@ -186,11 +186,11 @@ class AnthropicProvider(BaseProvider):
     
     def __init__(self, api_key: str):
         super().__init__(api_key, "https://api.anthropic.com/v1")
-        self.models = ["claude-3-sonnet-20240229", "claude-3-haiku-20240307", "claude-4"]
+        self.models = ["claude-3-5-sonnet-20240620", "claude-3-opus-20240229", "claude-3-haiku-20240307"]
         self.model_capabilities = {
-            "claude-3-sonnet-20240229": {"max_tokens": 200000, "supports_vision": True, "cost_per_1k_input": 0.003, "cost_per_1k_output": 0.015},
-            "claude-3-haiku-20240307": {"max_tokens": 200000, "supports_vision": False, "cost_per_1k_input": 0.00025, "cost_per_1k_output": 0.00125},
-            "claude-4": {"max_tokens": 500000, "supports_vision": True, "cost_per_1k_input": 0.005, "cost_per_1k_output": 0.025}
+            "claude-3-5-sonnet-20240620": {"max_tokens": 200000, "supports_vision": True, "cost_per_1k_input": 0.003, "cost_per_1k_output": 0.015},
+            "claude-3-opus-20240229": {"max_tokens": 200000, "supports_vision": True, "cost_per_1k_input": 0.015, "cost_per_1k_output": 0.075},
+            "claude-3-haiku-20240307": {"max_tokens": 200000, "supports_vision": True, "cost_per_1k_input": 0.00025, "cost_per_1k_output": 0.00125}
         }
     
     async def generate(self, request: InferenceRequest) -> InferenceResponse:
@@ -205,7 +205,7 @@ class AnthropicProvider(BaseProvider):
             }
             
             payload = {
-                "model": request.model_preference or "claude-3-sonnet-20240229",
+                "model": request.model_preference or "claude-3-5-sonnet-20240620",
                 "max_tokens": request.max_tokens,
                 "temperature": request.temperature,
                 "messages": [{"role": "user", "content": request.prompt}]
@@ -222,7 +222,7 @@ class AnthropicProvider(BaseProvider):
                     
                     response_text = data["content"][0]["text"]
                     tokens_used = data["usage"]["output_tokens"]
-                    cost = self.estimate_cost(request.prompt, tokens_used, payload.get("model", "gpt-4-turbo"))
+                    cost = self.estimate_cost(request.prompt, tokens_used, payload.get("model", "claude-3-5-sonnet-20240620"))
                     
                     self._update_metrics(latency, success=True)
                     
@@ -255,8 +255,8 @@ class AnthropicProvider(BaseProvider):
         output_tokens = max_tokens
         
         # Use model-specific pricing
-        model = model or "claude-3-sonnet-20240229"
-        capabilities = self.model_capabilities.get(model, self.model_capabilities["claude-3-sonnet-20240229"])
+        model = model or "claude-3-5-sonnet-20240620"
+        capabilities = self.model_capabilities.get(model, self.model_capabilities["claude-3-5-sonnet-20240620"])
         
         input_cost = (input_tokens * capabilities["cost_per_1k_input"]) / 1000
         output_cost = (output_tokens * capabilities["cost_per_1k_output"]) / 1000
@@ -271,10 +271,10 @@ class GoogleProvider(BaseProvider):
     
     def __init__(self, api_key: str):
         super().__init__(api_key, "https://generativelanguage.googleapis.com/v1beta")
-        self.models = ["gemini-pro", "gemini-ultra"]
+        self.models = ["gemini-1.5-pro", "gemini-1.5-flash"]
         self.model_capabilities = {
-            "gemini-pro": {"max_tokens": 32768, "supports_vision": True, "cost_per_1k_input": 0.000125, "cost_per_1k_output": 0.000375},
-            "gemini-ultra": {"max_tokens": 100000, "supports_vision": True, "cost_per_1k_input": 0.001, "cost_per_1k_output": 0.002}
+            "gemini-1.5-pro": {"max_tokens": 1000000, "supports_vision": True, "cost_per_1k_input": 0.0035, "cost_per_1k_output": 0.0105},
+            "gemini-1.5-flash": {"max_tokens": 1000000, "supports_vision": True, "cost_per_1k_input": 0.00035, "cost_per_1k_output": 0.0007}
         }
     
     async def generate(self, request: InferenceRequest) -> InferenceResponse:
@@ -290,8 +290,11 @@ class GoogleProvider(BaseProvider):
                 }
             }
             
+            # Use preference or default to flash
+            model = request.model_preference or "gemini-1.5-flash"
+            
             async with self.session.post(
-                f"{self.base_url}/models/gemini-pro:generateContent?key={self.api_key}",
+                f"{self.base_url}/models/{model}:generateContent?key={self.api_key}",
                 json=payload
             ) as response:
                 if response.status == 200:
@@ -299,21 +302,21 @@ class GoogleProvider(BaseProvider):
                     latency = time.time() - start_time
                     
                     response_text = data["candidates"][0]["content"]["parts"][0]["text"]
-                    tokens_used = data["usageMetadata"]["totalTokenCount"]
-                    cost = self.estimate_cost(request.prompt, tokens_used, payload.get("model", "gpt-4-turbo"))
+                    tokens_used = data.get("usageMetadata", {}).get("totalTokenCount", 0)
+                    cost = self.estimate_cost(request.prompt, tokens_used, model)
                     
                     self._update_metrics(latency, success=True)
                     
                     return InferenceResponse(
                         response=response_text,
                         provider="google",
-                        model="gemini-pro",
+                        model=model,
                         latency=latency,
                         tokens_used=tokens_used,
                         cost=cost,
                         cache_hit=False,
                         request_id=request_id,
-                        metadata={"usage": data["usageMetadata"]}
+                        metadata={"usage": data.get("usageMetadata", {})}
                     )
                 else:
                     error_text = await response.text()
@@ -333,8 +336,8 @@ class GoogleProvider(BaseProvider):
         output_tokens = max_tokens
         
         # Use model-specific pricing
-        model = model or "gemini-pro"
-        capabilities = self.model_capabilities.get(model, self.model_capabilities["gemini-pro"])
+        model = model or "gemini-1.5-flash"
+        capabilities = self.model_capabilities.get(model, self.model_capabilities["gemini-1.5-flash"])
         
         input_cost = (input_tokens * capabilities["cost_per_1k_input"]) / 1000
         output_cost = (output_tokens * capabilities["cost_per_1k_output"]) / 1000
@@ -349,11 +352,10 @@ class CohereProvider(BaseProvider):
     
     def __init__(self, api_key: str):
         super().__init__(api_key, "https://api.cohere.com/v1")
-        self.models = ["command-r-plus", "command-r", "command-r++"]
+        self.models = ["command-r-plus", "command-r"]
         self.model_capabilities = {
-            "command-r-plus": {"max_tokens": 128000, "supports_vision": False, "cost_per_1k_input": 0.0003, "cost_per_1k_output": 0.0015},
-            "command-r": {"max_tokens": 128000, "supports_vision": False, "cost_per_1k_input": 0.00025, "cost_per_1k_output": 0.001},
-            "command-r++": {"max_tokens": 200000, "supports_vision": False, "cost_per_1k_input": 0.0005, "cost_per_1k_output": 0.002}
+            "command-r-plus": {"max_tokens": 128000, "supports_vision": False, "cost_per_1k_input": 0.003, "cost_per_1k_output": 0.015},
+            "command-r": {"max_tokens": 128000, "supports_vision": False, "cost_per_1k_input": 0.0005, "cost_per_1k_output": 0.0015}
         }
     
     async def generate(self, request: InferenceRequest) -> InferenceResponse:

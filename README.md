@@ -1,14 +1,14 @@
 # Neural-Mesh
 ## Advanced AI Inference Orchestration Platform
 
-**Neural-Mesh** is an architected AI inference orchestration platform with intelligent request routing, multi-modal semantic caching, and reinforcement learning-based provider optimization supporting GPT-5, Claude-4, Google Gemini Ultra, and Cohere APIs with advanced load balancing.
+**Neural-Mesh** is an architected AI inference orchestration platform with intelligent request routing, multi-modal semantic caching, and reinforcement learning-based provider optimization supporting GPT-4o, Claude 3.5 Sonnet, Google Gemini 1.5 Pro, and Cohere APIs with advanced load balancing.
 
 ## Key Features
 
 - **Intelligent Request Routing**: Advanced semantic analysis and reinforcement learning for optimal provider selection
 - **Multi-Modal Semantic Caching**: 85%+ cache hit rates through cosine similarity matching and automated response clustering
 - **Reinforcement Learning Optimization**: RL-optimized cache eviction policies and provider selection algorithms
-- **Multi-Provider Support**: Unified interface for GPT-5, Claude-4, Google Gemini Ultra, and Cohere APIs
+- **Multi-Provider Support**: Unified interface for GPT-4o, Claude 3.5 Sonnet, Google Gemini 1.5 Pro, and Cohere APIs
 - **Advanced Load Balancing**: Circuit breaker patterns and predictive scaling for high availability
 - **Comprehensive Observability**: 20+ KPIs including latency percentiles, cost optimization, and provider health
 
@@ -147,10 +147,10 @@ inferenceflow/
 **Purpose**: Unified interface for multiple LLM APIs with advanced optimization
 
 **Required Providers**:
-- OpenAI (GPT-4, GPT-4 Turbo, GPT-5)
-- Anthropic (Claude-3-sonnet, Claude-3-haiku, Claude-4)
-- Google (Gemini Pro, Gemini Ultra)
-- Cohere (Command-R+, Command R++)
+- OpenAI (GPT-4 Turbo, GPT-4o, GPT-4o mini)
+- Anthropic (Claude 3.5 Sonnet, Claude 3 Opus, Claude 3 Haiku)
+- Google (Gemini 1.5 Pro, Gemini 1.5 Flash)
+- Cohere (Command R+, Command R)
 
 **Key Features**:
 - Async HTTP clients for all providers with connection pooling

@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     cache_regions: List[str] = ["us-east-1", "us-west-1", "eu-west-1"]
     
     # Provider Configuration
-    default_model: str = "gpt-5"
+    default_model: str = "gpt-4o"
     max_retries: int = 3
     timeout_seconds: int = 30
     enable_circuit_breaker: bool = True
@@ -140,26 +140,26 @@ class Settings(BaseSettings):
     
     # Model Configuration
     model_configs: Dict[str, Dict[str, Any]] = {
-        "gpt-5": {
-            "max_tokens": 200000,
+        "gpt-4o": {
+            "max_tokens": 128000,
             "supports_vision": True,
             "supports_streaming": True,
-            "cost_per_1k_input": 0.015,
-            "cost_per_1k_output": 0.04
+            "cost_per_1k_input": 0.005,
+            "cost_per_1k_output": 0.015
         },
-        "claude-4": {
+        "claude-3-opus-20240229": {
             "max_tokens": 200000,
             "supports_vision": True,
             "supports_streaming": True,
             "cost_per_1k_input": 0.015,
             "cost_per_1k_output": 0.075
         },
-        "gemini-ultra": {
-            "max_tokens": 32000,
+        "gemini-1.5-pro": {
+            "max_tokens": 1000000,
             "supports_vision": True,
             "supports_streaming": True,
-            "cost_per_1k_input": 0.00125,
-            "cost_per_1k_output": 0.005
+            "cost_per_1k_input": 0.0035,
+            "cost_per_1k_output": 0.0105
         },
         "command-r-plus": {
             "max_tokens": 128000,
